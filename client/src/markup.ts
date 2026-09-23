@@ -1,0 +1,21 @@
+const icon = (name: string) =>
+  ({ arrow: '↗', play: '↗', lock: '⌑', join: '↳', settings: '⚙', help: '?', sound: '♪' })[name] ??
+  name;
+export const markup = `
+<canvas id="arena" aria-label="Luma Coil game arena"></canvas>
+<div id="menu" class="menu-shell">
+  <header class="topbar"><a class="wordmark" href="/" aria-label="Luma Coil home"><span class="brand-icon">ϟ</span> luma<span>coil</span><span class="beta">VOL. 01</span></a><div class="top-actions"><span class="live-status"><i id="status-dot"></i><span id="status">Connecting</span></span><button class="icon-btn" id="settings" aria-label="Settings">${icon('settings')}</button></div></header>
+  <main class="menu-main"><section class="intro"><div class="eyebrow"><span></span> MULTIPLAYER SNAKE ARENA</div><h1>Small beginnings.<br><em>Infinite possibilities.</em></h1><p class="lede">Find your flow. Chase the glow.<br>A little spark is all it takes to grow.</p>
+  <section class="play-card"><div class="card-top"><span>MAKE YOUR ENTRANCE</span><span class="guest-tag">NO SIGN-UP. JUST PLAY.</span></div><label class="field-label" for="name">What should we call you?</label><div class="name-field"><span class="input-star">✳</span><input id="name" maxlength="20" placeholder="Wanderer" autocomplete="nickname" spellcheck="false"/><span class="field-hint">GUEST</span></div>
+  <div class="skin-label"><label>Pick your energy</label><span id="skin-name">Ion</span></div><div class="skins" id="skins"></div>
+  <button id="quick" class="primary"><span>Quick Play</span><span class="button-end">JUMP IN <b>↗</b></span></button><div class="private-actions"><button id="create"><span>⌑</span> Create Private Room</button><button id="join"><span>↳</span> Join Private Room</button></div>
+  <div id="menu-error" class="error" role="alert" hidden></div><div class="card-foot"><span class="little-dot"></span> REAL PLAYERS. ONE SHARED ARENA.</div></section>
+  <button id="how" class="how-button"><span class="help-circle">?</span> First time around? <strong>How to play</strong> <span>↗</span></button></section>
+  <aside class="hero-note"><span class="tiny-orbit">✳</span><div>GOOD THINGS<br>COME AROUND.</div><span class="hero-index">001 / ION</span></aside></main>
+  <footer class="menu-footer"><span>STAY CURIOUS. KEEP GROWING.</span><div><span><i class="keycap">↖</i> MOVE</span><span><i class="keycap">SPACE</i> BOOST</span><span><i class="keycap">✦</i> GROW</span></div><span>MADE FOR A LITTLE FRIENDLY CHAOS.</span></footer>
+</div>
+<section id="hud" hidden><div class="hud-left"><span class="hud-brand">ϟ luma<span>coil</span></span><div class="room-pill"><i class="little-dot"></i><span id="room-label">PUBLIC ARENA</span><button id="invite" title="Copy room invite" hidden>⧉</button></div><div class="score-box"><span class="hud-caption">YOUR MASS</span><strong id="score">32</strong><span class="rank-line">RANK <b id="rank">1</b><span> / </span><b id="players">1</b> PLAYERS</span></div></div><div class="leaderboard"><div class="board-title">THE BRIGHTEST <span>TOP 10</span></div><ol id="leaders"></ol><div class="board-footer"><span id="ping">— ms</span><button id="sound-toggle" aria-label="Toggle sound">♪</button><button id="leave">Leave ↗</button></div></div><div class="boost-hint"><span id="boost-label">HOLD SPACE OR CLICK TO BOOST</span><div class="boost-track"><i id="boost-fill"></i></div></div><button id="touch-boost">BOOST ↑</button></section>
+<div id="toast" role="status" hidden></div>
+<dialog id="modal"><button id="modal-close" aria-label="Close dialog">×</button><div id="modal-content"></div></dialog>
+<dialog id="death"><span class="eyebrow">EVERY END IS A BEGINNING</span><div class="death-symbol">✳</div><h2>A beautiful little run.</h2><p id="death-reason"></p><div class="death-stats"><div><span>FINAL MASS</span><strong id="death-score"></strong></div><div><span>TIME IN THE GLOW</span><strong id="death-time"></strong></div></div><button class="primary" id="respawn">One more round <b>↗</b></button><button class="text-btn" id="back-menu">Back to the lobby</button></dialog>
+<div id="reconnect" hidden><div class="connection-card"><div class="loader"></div><h2>Finding your signal…</h2><p id="reconnect-text">Connection lost. Reconnecting to the arena.</p><button class="text-btn" id="cancel-reconnect">Back to the lobby</button></div></div>`;
