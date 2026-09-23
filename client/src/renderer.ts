@@ -356,6 +356,7 @@ export class Renderer {
       this.drawSnake(
         {
           id: 'hero',
+          bot: false,
           name: '',
           skin: this.skin,
           x: points[0],

@@ -25,6 +25,7 @@ export interface Food extends Point {
   kind: number;
 }
 export interface SnakeView {
+  bot: boolean;
   id: string;
   name: string;
   skin: number;
@@ -37,6 +38,7 @@ export interface SnakeView {
   body: number[];
 }
 export interface Leader {
+  bot: boolean;
   id: string;
   name: string;
   score: number;
@@ -50,6 +52,8 @@ export interface Snapshot {
   foodRemove: number[];
   leaders: Leader[];
   count: number;
+  humanCount: number;
+  botCount: number;
   rank: number;
   score: number;
 }

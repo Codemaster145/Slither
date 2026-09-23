@@ -21,13 +21,14 @@ test('32 concurrent real WebSocket clients receive healthy shared snapshots', as
       );
       assert.ok(result.ok);
       s.on('snapshot', (state: Snapshot) => {
-        assert.ok(state.count <= 32);
+        assert.ok(state.humanCount <= 32);
+        assert.ok(state.botCount <= 17);
         snapshots++;
         bytes += Buffer.byteLength(JSON.stringify(state));
       });
     }
     const room = [...game.rooms.values()][0];
-    assert.equal(room.players.size, 32);
+    assert.equal(room.humanCount, 32);
     assert.equal(room.foods.size >= 2300, true);
     const timer = setInterval(
       () =>

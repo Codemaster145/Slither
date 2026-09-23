@@ -13,9 +13,11 @@ import {
   type Snapshot,
   type Death,
 } from '../shared/protocol.js';
+import { BotController } from './bots.js';
 import { SpatialHash } from './spatial.js';
 export interface Player extends Point {
   id: string;
+  bot: boolean;
   name: string;
   skin: number;
   angle: number;
@@ -43,18 +45,24 @@ export class Arena {
   foodGrid = new SpatialHash<Food>(100);
   bodyGrid = new SpatialHash<BodyPoint>(64);
   emptySince = Date.now();
+  readonly bots: BotController;
+  get humanCount() {
+    return [...this.players.values()].filter((p) => !p.bot).length;
+  }
   private foodId = 0;
   private seq = 0;
   constructor(
     public code: string,
     public privateRoom: boolean,
     public foodTarget = 2400,
+    private random: () => number = Math.random,
   ) {
+    this.bots = new BotController(this, random);
     for (let i = 0; i < foodTarget; i++) this.spawnFood();
   }
   point(): Point {
-    const a = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * (WORLD_RADIUS - 80);
+    const a = this.random() * Math.PI * 2;
+    const r = Math.sqrt(this.random()) * (WORLD_RADIUS - 80);
     return { x: Math.cos(a) * r, y: Math.sin(a) * r };
   }
   addFood(x: number, y: number, value = 1, kind = 0) {
@@ -67,16 +75,17 @@ export class Arena {
   spawnFood() {
     let p = this.point();
     for (let i = 0; i < 4 && this.foodGrid.near(p.x, p.y, 14).length; i++) p = this.point();
-    const rich = Math.random() < 0.1;
+    const rich = this.random() < 0.1;
     this.addFood(p.x, p.y, rich ? 4 : 1, rich ? 1 : 0);
   }
-  addPlayer(id: string, name: string, skin: number) {
+  addPlayer(id: string, name: string, skin: number, bot = false) {
     const names = new Set([...this.players.values()].map((p) => p.name.toLowerCase()));
     const base = name;
     let suffix = 2;
     while (names.has(name.toLowerCase())) name = `${base.slice(0, 16)} ${suffix++}`;
     const player: Player = {
       id,
+      bot,
       name,
       skin,
       x: 0,
@@ -104,11 +113,11 @@ export class Arena {
     const friend = [...this.players.values()].find((v) => v.id !== p.id && v.alive);
     for (let tries = 0; tries < 30; tries++) {
       if (this.privateRoom && friend) {
-        const a = Math.random() * Math.PI * 2;
+        const a = this.random() * Math.PI * 2;
         pos = { x: friend.x + Math.cos(a) * 360, y: friend.y + Math.sin(a) * 360 };
       } else {
-        const a = Math.random() * Math.PI * 2,
-          r = 300 + Math.random() * 1000;
+        const a = this.random() * Math.PI * 2,
+          r = 300 + this.random() * 1000;
         pos = { x: Math.cos(a) * r, y: Math.sin(a) * r };
       }
       if (
@@ -144,8 +153,8 @@ export class Arena {
     const value = Math.max(1, Math.floor((p.mass * 0.72) / count));
     for (let i = 0; i < p.trail.length; i += step)
       this.addFood(
-        p.trail[i].x + (Math.random() - 0.5) * 14,
-        p.trail[i].y + (Math.random() - 0.5) * 14,
+        p.trail[i].x + (this.random() - 0.5) * 14,
+        p.trail[i].y + (this.random() - 0.5) * 14,
         value,
         2,
       );
@@ -240,14 +249,20 @@ export class Arena {
     return {
       time: now,
       seq: ++this.seq,
-      count: this.players.size,
+      count: this.humanCount + alive.filter((v) => v.bot).length,
+      humanCount: this.humanCount,
+      botCount: alive.filter((v) => v.bot).length,
       rank: alive.findIndex((v) => v.id === p.id) + 1,
       score: Math.floor(p.mass),
       foodAdd,
       foodRemove,
-      leaders: alive
-        .slice(0, 10)
-        .map((v) => ({ id: v.id, name: v.name, score: Math.floor(v.mass), skin: v.skin })),
+      leaders: alive.slice(0, 10).map((v) => ({
+        id: v.id,
+        name: v.name,
+        score: Math.floor(v.mass),
+        skin: v.skin,
+        bot: v.bot,
+      })),
       snakes: alive
         .filter(
           (v) =>
@@ -266,6 +281,7 @@ export class Arena {
           }
           return {
             id: v.id,
+            bot: v.bot,
             name: v.name,
             skin: v.skin,
             x: round(v.x),

@@ -170,7 +170,7 @@ function joinDialog(code = '') {
 $('join').onclick = () => joinDialog();
 $('how').onclick = () =>
   openModal(
-    `<span class="eyebrow">FIND YOUR FLOW</span><h2>Small coil. Big dreams.</h2><div class="instructions"><div><b>01</b><p><strong>Follow your curiosity.</strong>Point your mouse to steer. On a phone, drag anywhere in the arena.</p></div><div><b>02</b><p><strong>Chase the glow.</strong>Gather sparks to grow. Brighter pellets are worth more mass.</p></div><div><b>03</b><p><strong>Make your move.</strong>Hold Space or the mouse button to boost. Speed costs mass, so grow a little first.</p></div><div><b>04</b><p><strong>Mind the other coils.</strong>Touch another player’s body or the arena edge and your run ends. Your own tail is safe. A dotted halo protects newly spawned coils for 2.5 seconds.</p></div></div><p class="dialog-note">The arena is shared live with real people. Invite a friend if it feels quiet.</p>`,
+    `<span class="eyebrow">FIND YOUR FLOW</span><h2>Small coil. Big dreams.</h2><div class="instructions"><div><b>01</b><p><strong>Follow your curiosity.</strong>Point your mouse to steer. On a phone, drag anywhere in the arena.</p></div><div><b>02</b><p><strong>Chase the glow.</strong>Gather sparks to grow. Brighter pellets are worth more mass.</p></div><div><b>03</b><p><strong>Make your move.</strong>Hold Space or the mouse button to boost. Speed costs mass, so grow a little first.</p></div><div><b>04</b><p><strong>Mind the other coils.</strong>Touch another player’s body or the arena edge and your run ends. Your own tail is safe. A dotted halo protects newly spawned coils for 2.5 seconds.</p></div></div><p class="dialog-note">Quick Play mixes real people with server-controlled AI coils. Private rooms are just for you and your friends.</p>`,
   );
 $('settings').onclick = () => {
   openModal(
@@ -276,6 +276,9 @@ socket.on('snapshot', (state) => {
   $('score').textContent = state.score.toLocaleString();
   $('rank').textContent = state.rank ? String(state.rank) : '—';
   $('players').textContent = String(state.count);
+  $('population').textContent =
+    `${state.humanCount} HUMAN${state.humanCount === 1 ? '' : 'S'} · ${state.botCount} AI`;
+  $('population').hidden = state.botCount === 0;
   const me = state.snakes.find((p) => p.id === renderer.id);
   if (me) {
     if (me.mass > previousScore) audio.play('eat');
@@ -298,7 +301,7 @@ socket.on('snapshot', (state) => {
     const rank = document.createElement('span');
     rank.textContent = String(i + 1).padStart(2, '0');
     const name = document.createElement('span');
-    name.textContent = p.name + (p.id === renderer.id ? ' · you' : '');
+    name.textContent = p.name + (p.id === renderer.id ? ' · you' : p.bot ? ' · AI' : '');
     const score = document.createElement('b');
     score.textContent = p.score.toLocaleString();
     li.append(rank, name, score);

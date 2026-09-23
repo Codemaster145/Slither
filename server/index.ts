@@ -42,7 +42,8 @@ export function createGameServer() {
     res.json({
       ok: true,
       rooms: rooms.size,
-      players: [...rooms.values()].reduce((n, r) => n + r.players.size, 0),
+      bots: [...rooms.values()].reduce((n, r) => n + r.bots.brains.size, 0),
+      players: [...rooms.values()].reduce((n, r) => n + r.humanCount, 0),
     }),
   );
   app.use(express.static(resolve('dist/client')));
@@ -65,7 +66,7 @@ export function createGameServer() {
     const leave = () => {
       if (room) {
         room.players.delete(socket.id);
-        if (!room.players.size) room.emptySince = Date.now();
+        if (!room.humanCount) room.emptySince = Date.now();
         room = undefined;
       }
     };
@@ -109,7 +110,7 @@ export function createGameServer() {
         }
       }
       if (data.mode === 'public')
-        next = [...rooms.values()].find((r) => !r.privateRoom && r.players.size < ROOM_CAPACITY);
+        next = [...rooms.values()].find((r) => !r.privateRoom && r.humanCount < ROOM_CAPACITY);
       if (!next) {
         if (rooms.size >= 100) {
           reply({ ok: false, error: 'All arenas are busy. Please try again soon.' });
@@ -119,7 +120,7 @@ export function createGameServer() {
         next = new Arena(code, data.mode === 'create');
         rooms.set(code, next);
       }
-      if (next.players.size >= ROOM_CAPACITY) {
+      if (next.humanCount >= ROOM_CAPACITY) {
         reply({ ok: false, error: 'This arena is full. Try Quick Play for an open arena.' });
         return;
       }
@@ -170,7 +171,8 @@ export function createGameServer() {
   const timer = setInterval(() => {
     const now = Date.now();
     for (const [code, room] of rooms) {
-      if (!room.players.size) {
+      room.bots.update(now);
+      if (!room.humanCount) {
         if (now - room.emptySince > 60000) rooms.delete(code);
         continue;
       }

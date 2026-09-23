@@ -1,8 +1,8 @@
 # Luma Coil
 
-An original, guest-only multiplayer snake arena. A TypeScript/Canvas frontend connects to one authoritative Node.js/Socket.IO server. Humans on separate computers share positions, pellets, collisions, deaths, scores, and rooms through actual persistent network connections. **There are no gameplay bots or simulated players.** The decorative coil on the menu is an illustration.
+An original, guest-only multiplayer snake arena. A TypeScript/Canvas frontend connects to one authoritative Node.js/Socket.IO server. Humans on separate computers share positions, pellets, collisions, deaths, scores, and rooms through actual persistent network connections. **Public Quick Play arenas also include server-controlled AI snakes; private rooms remain human-only.** The decorative coil on the menu is an illustration.
 
-Features include 32-player public arenas with automatic overflow, six-digit private rooms and invite links, six original skins, continuous movement, mass-consuming boost, body collisions, death food, instant respawn, a live leaderboard, minimap, mobile steering/boost, and original synthesized sound/music with volume and mute controls. Fonts ship locally with the app.
+Features include public arenas with capacity for 32 humans with automatic overflow, six-digit private rooms and invite links, six original skins, continuous movement, mass-consuming boost, body collisions, death food, instant respawn, a live leaderboard, minimap, mobile steering/boost, and original synthesized sound/music with volume and mute controls. Fonts ship locally with the app.
 
 ## Run locally
 
@@ -44,11 +44,22 @@ For two different internet connections, use the public HTTPS URL deployed below.
 
 Empty rooms expire after 60 seconds. State lives in memory. Server restarts/deployments clear rooms and runs. A temporary transport interruption reconnects the guest to the previous room with a **new coil and reset mass**. An expired room returns a clear error so the player can create another. Disconnects remove the old coil immediately after transport loss is detected (heartbeat detection can take up to 15 seconds).
 
+## Quick Play AI
+
+Public rooms target **18 total snakes**: one human gets 17 bots, five humans get 13 bots, and at **15 or more humans the target is zero bots**. Population is checked every half-second. Deaths create a short dip in living population while bots wait 2–4 seconds to respawn. All clients receive the same authoritative AI state, food and leaderboard; bot entries have an `AI` marker and the current human remains highlighted.
+
+Bots never block a human joining a room. Excess bots retire after normal deaths or when their entire trail is outside every human's relevance radius. Visible retirees steer toward the edge using ordinary movement and collision rules. This avoids abrupt disappearances and can temporarily put the total above 18 (or above 32 during a large influx); the room limit is **32 human connections**, with at most 17 existing bots finishing their exits. When the last human leaves, bots are removed and the ordinary 60-second room cleanup applies. Private rooms contain no automatic AI.
+
+`server/bots.ts` provides inputs to the existing simulation rather than moving entities itself. Food sensing uses the food spatial hash within a 260/380/520-unit radius depending on skill. Body avoidance queries the body hash within at most 300 units. Bots weigh nearby food by value, distance and turning cost, evaluate short local paths, avoid the edge, wander when food is out of sight, and occasionally boost when mass and clearance permit. All turn limits, speed, boost costs, pickups, growth, collision deaths and food drops are the same as for humans.
+
+A shuffled seven-bot skill bag contains five Normal, one Easy and one Good AI. Reaction times range from about 160–380 ms plus jitter; aim noise and incomplete local information create mistakes. Bots draw unique names from a 60-name pool and choose existing skins. A respawn retains identity, name and skin but resets mass and grants the standard spawn shield. Inputs are evaluated about 2.5–6 times a second, staggered across bots. Clients cannot spawn or control AI through the network protocol.
+
 ## Architecture and important files
 
 | File                        | Responsibility                                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `server/index.ts`           | HTTP server, validated Socket.IO events, rooms, rate budgets, fixed simulation loop and snapshots                 |
+| `server/bots.ts`            | Public population management, local sensing, skill profiles, steering and respawn scheduling                      |
 | `server/arena.ts`           | Authoritative movement, history trails, mass, food, collisions, deaths, spawn protection and visible-state deltas |
 | `server/spatial.ts`         | Spatial hash for food and nearby body collision queries                                                           |
 | `shared/protocol.ts`        | Typed messages, tuning constants, skin palette and world dimensions                                               |
@@ -64,7 +75,7 @@ Empty rooms expire after 60 seconds. State lives in memory. Server restarts/depl
 
 The server simulates at **30 Hz** and publishes snapshots at **15 Hz**. Clients send only desired angle and boolean boost at 30 Hz. Server-side turn limits, fixed speeds and mass budgets determine the result. Inputs over 45/second are ignored; room actions are limited to five/second per socket. Names are normalized, stripped of markup/control characters, capped to 20 characters, and rendered with `textContent`. Invalid packet shapes, non-finite angles, invalid skins and unknown rooms are rejected. Transport messages are capped at 2 KiB.
 
-Each arena has a 2,600-unit radius, 2,400 ambient food particles, a 32-player capacity, capped growth, and a cap on extra dropped food. Food and body checks use spatial hashes instead of every player checking every food or every other body. Bodies are compact movement trails, not physics objects. Food has stable per-room IDs; players use their connection IDs.
+Each arena has a 2,600-unit radius, 2,400 ambient food particles, a 32-human capacity, capped growth, and a cap on extra dropped food. Food and body checks use spatial hashes instead of every player checking every food or every other body. Bodies are compact movement trails, not physics objects. Food has stable per-room IDs; humans use their connection IDs and bots have server-generated UUIDs.
 
 Only entities within a 1,650-unit relevance radius are transmitted. Food is sent on entering that radius, then as additions/removals; it is not retransmitted every tick. Nearby snake trails are quantized, sampled about every 15 units, and published with their head state. Leaderboards contain ten entries. Snapshots use reliable delivery because food deltas cannot be dropped; congested transports are skipped before changing their known-food set. Client rendering additionally culls offscreen food and constrains the camera so the viewport fits the relevance radius.
 
@@ -82,9 +93,9 @@ npm run typecheck
 npm run format:check
 ```
 
-`npm test` exercises motion/boost authority, shared food deltas, body/head/boundary deaths, respawn, name handling, room isolation/capacity, malformed inputs, real WebSocket disconnect cleanup, and 32 simultaneous real socket clients. The load test prints observed snapshot frequency and traffic on the machine running it; it is not an internet throughput guarantee.
+`npm test` exercises motion/boost authority, shared food deltas, body/head/boundary deaths, respawn, name handling, room isolation/capacity, malformed inputs, real WebSocket disconnect cleanup, and 32 simultaneous real socket clients. AI tests cover population retirement, private-room exclusion, local steering/avoidance, legal boosting, shared collisions in both directions, death food, delayed respawn and a seeded one-minute gameplay simulation. The load test prints observed snapshot frequency and traffic on the machine running it; it is not an internet throughput guarantee.
 
-`npm run test:browser` builds production assets, starts an isolated real server and opens two independent Chromium browser contexts. It verifies both players' received movement snapshots, shared food removal, scores/leaderboards, boost, body collision/death, respawn, transport reconnection, disconnect cleanup, invite links, invalid rooms, skins, settings and a mobile-width layout. Test fixtures can position entities directly in the in-process test server to make collisions reproducible; **no test-control endpoints or client score/position controls exist in production**. Screenshots are written to `test-results/`.
+`npm run test:browser` builds production assets, starts an isolated real server and opens two independent Chromium browser contexts. It verifies both players' received movement snapshots, shared food removal, scores/leaderboards, boost, body collision/death, respawn, transport reconnection, disconnect cleanup, invite links, invalid rooms, skins, settings and a mobile-width layout. A second two-browser Quick Play test compares bot positions and leaderboard entries from the exact same server timestamp, verifies AI food growth and human/AI collision, bot respawn, and adds 13 real socket clients to verify retirement at 15 humans. Test fixtures can position entities directly in the in-process test server to make collisions reproducible; **no test-control endpoints or client score/position controls exist in production**. Screenshots are written to `test-results/`.
 
 These tests were executed locally. An actual cross-internet test must be performed after deployment with two independent devices/connections; local browser contexts do not establish that a hosting account, DNS, firewall and TLS configuration work.
 
@@ -140,7 +151,7 @@ Build with `VITE_SERVER_URL=https://YOUR-BACKEND` and upload **`dist/client`** t
 - **Works locally, fails publicly:** check the browser Network panel for `/socket.io/` and a WebSocket 101 upgrade. Check build-time `VITE_SERVER_URL`, exact allowed origins, HTTPS, proxy upgrade headers and whether the host supports persistent connections.
 - **Room not found:** confirm both clients use the same backend instance and code. Empty rooms expire after a minute, and restarts clear all rooms.
 - **Room full:** private rooms stop at 32 guests. Quick Play creates another public arena automatically.
-- **Quiet public arena:** this build deliberately has no bots. Invite another human; the online count represents actual connections.
+- **Public population:** Quick Play targets 18 entrants below 15 humans; AI count dips briefly during respawn. At 15+ humans, bots retire. The HUD separates connected humans from living AI; leaderboard entries mark AI. Private rooms never auto-populate with bots.
 - **Lag:** use a hosting region close to your players. Input prediction, adaptive jitter buffering and WAN latency tuning remain future improvements. A 32-client local test is not a large production load test.
 - **Scaling/abuse:** current packet/rate validation is basic protection. Before promoting a large public launch, add edge connection throttling, operational metrics, stress testing, and a room-routing plan. Current state is ephemeral, with at most 100 rooms per process.
 - **Music is silent:** browsers require a user gesture before audio. Start a match or open settings, then check mute and volume sliders.
