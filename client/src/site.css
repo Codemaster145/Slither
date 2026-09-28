@@ -1,0 +1,365 @@
+.site-menu {
+  min-height: 100svh;
+}
+.site-menu .topbar {
+  height: 84px;
+  flex-shrink: 0;
+}
+.site-menu .menu-main {
+  padding-top: 38px;
+  padding-bottom: 24px;
+}
+.site-menu h1 {
+  font-size: clamp(36px, 3.7vw, 61px);
+}
+.site-menu .lede {
+  margin-top: 18px;
+  margin-bottom: 24px;
+  font-size: 17px;
+}
+.site-menu .play-card {
+  max-width: 490px;
+}
+.site-menu .field-label,
+.site-menu .skin-label {
+  font-size: 14px;
+}
+.site-menu .card-top {
+  font-size: 11px;
+}
+.site-menu .card-foot {
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.mode-tabs {
+  display: flex;
+  padding: 4px;
+  background: #0e140f;
+  border: 1px solid #ffffff12;
+  border-radius: 10px;
+  gap: 4px;
+  margin: 18px 0 12px;
+}
+.mode-tabs button {
+  flex: 1;
+  padding: 10px;
+  background: transparent;
+  color: #98a390;
+  border-radius: 7px;
+  font-size: 14px;
+}
+.mode-tabs button.selected {
+  background: #263122;
+  color: #ddf5c7;
+  box-shadow: 0 1px 4px #0004;
+}
+.game-summary {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0 16px;
+  color: #9ba994;
+  font-size: 13px;
+}
+.game-summary strong {
+  color: #e5eddc;
+  margin-left: 8px;
+  font-weight: 500;
+}
+.selection-label {
+  font-size: 14px;
+  margin: 14px 0 10px;
+}
+.difficulty-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+.difficulty-grid button,
+#counts button {
+  border: 1px solid #ffffff1a;
+  border-radius: 8px;
+  background: #121a13;
+  padding: 10px 4px;
+  font-size: 13px;
+  color: #a5b09b;
+}
+.difficulty-grid button.selected,
+#counts button.selected {
+  border-color: #b4f85b;
+  background: #b4f85b13;
+  color: #c8ff8b;
+}
+.difficulty-note {
+  font-size: 13px;
+  color: #a2ae98;
+  line-height: 1.5;
+  min-height: 39px;
+  margin: 10px 0;
+}
+.count-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+#counts {
+  display: flex;
+  gap: 6px;
+}
+#counts button {
+  min-width: 48px;
+  padding: 8px;
+}
+.site-menu .hero-note {
+  bottom: 120px;
+}
+.session-card {
+  margin-top: 30px;
+  width: 290px;
+  text-align: left;
+  padding: 20px;
+  background: #111812b3;
+  backdrop-filter: blur(14px);
+  border: 1px solid #c6dd9e18;
+  border-radius: 14px;
+}
+.session-card .eyebrow {
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+#session-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 20px;
+}
+#session-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#session-stats strong {
+  font-family: 'Space Grotesk Variable', sans-serif;
+  font-size: 23px;
+  color: #e0eaca;
+}
+#session-stats span {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: #9daa90;
+}
+#death .death-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px 12px;
+}
+#death .death-stats strong {
+  font-size: 25px;
+}
+#death .death-stats span {
+  font-size: 10px;
+}
+#death .death-symbol {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+#pause-dialog {
+  max-width: 440px;
+  text-align: center;
+}
+.board-footer {
+  gap: 12px;
+}
+.board-footer button {
+  font-size: 13px;
+}
+.leaderboard li {
+  font-size: 13px;
+}
+#hud .room-pill {
+  font-size: 11px;
+}
+#hud .rank-line {
+  font-size: 12px;
+}
+#menu:not([hidden]) .play-card {
+  animation: arrive 0.35s ease-out;
+}
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 1000px) {
+  .site-menu .hero-note {
+    right: 4vw;
+  }
+  .session-card {
+    width: 230px;
+  }
+}
+@media (max-width: 850px) {
+  body:has(.site-menu:not([hidden])) {
+    overflow: auto;
+  }
+  .site-menu .menu-main {
+    display: block;
+    padding-top: 28px;
+  }
+  .site-menu .intro {
+    width: 100%;
+    max-width: 530px;
+    margin: auto;
+  }
+  .site-menu .play-card {
+    max-width: none;
+  }
+  .site-menu .hero-note {
+    position: static;
+    display: block;
+    text-align: center;
+    margin: 15px auto;
+  }
+  .site-menu .hero-note > div:not(.session-card),
+  .site-menu .hero-note > .tiny-orbit,
+  .site-menu .hero-index {
+    display: none;
+  }
+  .session-card {
+    width: 100%;
+    max-width: 530px;
+    margin: 0 auto 24px;
+  }
+  #session-stats {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .site-menu .top-actions .live-status {
+    display: none;
+  }
+  .site-menu h1 {
+    font-size: clamp(33px, 6vw, 50px);
+  }
+  .site-menu .menu-footer {
+    min-height: 70px;
+    padding: 15px 0;
+  }
+}
+@media (max-width: 480px) {
+  .site-menu {
+    padding: 0 20px;
+  }
+  .site-menu .topbar {
+    height: 70px;
+  }
+  .site-menu .play-card {
+    padding: 20px;
+  }
+  .site-menu .card-top {
+    font-size: 9px;
+  }
+  .guest-tag {
+    letter-spacing: 0;
+  }
+  .difficulty-grid button {
+    font-size: 11px;
+  }
+  .site-menu .skins {
+    gap: 7px;
+  }
+  .site-menu .skin {
+    height: 48px;
+  }
+  .site-menu .lede {
+    font-size: 15px;
+  }
+  .site-menu .how-button {
+    font-size: 12px;
+  }
+  .game-summary {
+    font-size: 12px;
+  }
+  #session-stats span {
+    font-size: 8px;
+  }
+  #session-stats strong {
+    font-size: 20px;
+  }
+  #death .death-stats {
+    gap: 18px 8px;
+  }
+  #death .death-stats strong {
+    font-size: 21px;
+  }
+  .leaderboard {
+    width: 170px;
+    padding: 13px;
+  }
+  .leaderboard li {
+    font-size: 11px;
+  }
+  .board-footer {
+    gap: 6px;
+  }
+  .board-footer button {
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+body:has(.site-menu:not([hidden])) {
+  overflow: auto;
+}
+.site-menu .hero-note {
+  top: 32px;
+  bottom: 40px;
+  right: 20px;
+  width: 44%;
+  display: block;
+  text-align: right;
+}
+.site-menu .hero-note > .tiny-orbit {
+  float: right;
+  margin-left: 12px;
+}
+.site-menu .hero-note > .hero-index {
+  top: 90px;
+}
+.site-menu .session-card {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  max-width: 470px;
+  margin: 0;
+}
+.site-menu #session-stats {
+  grid-template-columns: repeat(4, 1fr);
+}
+.site-menu .skin-label > span {
+  font-size: 13px;
+}
+@media (max-width: 850px) {
+  .site-menu .hero-note {
+    position: static;
+    width: 100%;
+    text-align: left;
+  }
+  .site-menu .session-card {
+    position: static;
+    max-width: 530px;
+    margin: 0 auto 24px;
+  }
+}

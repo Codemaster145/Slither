@@ -1,30 +1,52 @@
 import '@fontsource-variable/dm-sans';
 import '@fontsource-variable/space-grotesk';
-import { io, type Socket } from 'socket.io-client';
-import {
-  BASE_MASS,
-  SKINS,
-  type ClientEvents,
-  type ServerEvents,
-  type JoinRequest,
-  type JoinReply,
-} from '../../shared/protocol';
+import { BASE_MASS, SKINS, type Snapshot } from '../../shared/protocol';
+import type { Difficulty, GameConfig } from '../../shared/local-game';
+import type { Command, GameEvent } from '../../shared/worker-protocol';
 import { Renderer } from './renderer';
 import { AudioEngine } from './audio';
-import './style.css';
 import { markup } from './markup';
+import './style.css';
+import './site.css';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 document.querySelector('#app')!.innerHTML = markup;
-const audio = new AudioEngine();
-const renderer = new Renderer($('arena'));
-let skin = Math.max(
-  0,
-  Math.min(SKINS.length - 1, Number(sessionStorage.getItem('luma-skin')) || 0),
-);
-$('name').setAttribute('value', sessionStorage.getItem('luma-name') ?? '');
+const audio = new AudioEngine(),
+  renderer = new Renderer($('arena'));
+const read = (key: string, fallback = '') => {
+  try {
+    return sessionStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const save = (key: string, value: string) => {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* Storage is optional. */
+  }
+};
+let stats = { score: 0, rank: 0, seconds: 0, games: 0 };
+try {
+  const stored = JSON.parse(read('luma-session', '{}'));
+  for (const key of Object.keys(stats) as (keyof typeof stats)[])
+    if (Number.isFinite(stored[key]) && stored[key] >= 0) stats[key] = stored[key];
+} catch {
+  /* Fresh session. */
+}
+const title = (s: string) => s[0].toUpperCase() + s.slice(1);
+const time = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function sessionStats() {
+  $('session-stats').innerHTML =
+    `<div><strong>${stats.score}</strong><span>BEST SCORE</span></div><div><strong>${stats.rank ? '#' + stats.rank : '—'}</strong><span>BEST RANK</span></div><div><strong>${time(stats.seconds)}</strong><span>LONGEST RUN</span></div><div><strong>${stats.games}</strong><span>RUNS PLAYED</span></div>`;
+  save('luma-session', JSON.stringify(stats));
+}
+sessionStats();
+let skin = Math.max(0, Math.min(SKINS.length - 1, Number(read('luma-skin')) || 0));
+$<HTMLInputElement>('name').value = read('luma-name');
 function selectSkin(i: number) {
   skin = i;
-  sessionStorage.setItem('luma-skin', String(i));
+  save('luma-skin', String(i));
   renderer.skin = i;
   $('skin-name').textContent = SKINS[i].name;
   document.querySelector('.hero-index')!.textContent =
@@ -49,237 +71,162 @@ SKINS.forEach((s, i) => {
   $('skins').append(button);
 });
 selectSkin(skin);
-const socket: Socket<ServerEvents, ClientEvents> = io(
-  import.meta.env.VITE_SERVER_URL || undefined,
-  {
-    transports: ['websocket', 'polling'],
-    tryAllTransports: true,
-    reconnection: true,
-    reconnectionDelay: 700,
-    reconnectionDelayMax: 3000,
-    timeout: 8000,
-  },
-);
-let playing = false,
+const descriptions: Record<Difficulty, string> = {
+  easy: 'Room to grow. Relaxed reactions, wandering turns and rare boosts.',
+  normal: 'A friendly challenge. Food seekers with a few tricks up their sleeves.',
+  hard: 'Stay sharp. Fast reactions, predicted paths and daring cutoffs.',
+  expert: 'Every turn matters. Escape planning, clever cutoffs and precise boosts.',
+  mixed: 'A little of everyone. Mostly Normal, with Easy, Hard and a few Experts.',
+};
+let custom = false,
+  difficulty: Difficulty = 'normal',
+  count: 10 | 20 | 30 = 20;
+for (const key of Object.keys(descriptions) as Difficulty[]) {
+  const b = document.createElement('button');
+  b.textContent = title(key);
+  b.dataset.difficulty = key;
+  b.onclick = () => {
+    difficulty = key;
+    selection();
+  };
+  $('difficulties').append(b);
+}
+for (const n of [10, 20, 30] as const) {
+  const b = document.createElement('button');
+  b.textContent = String(n);
+  b.dataset.count = String(n);
+  b.onclick = () => {
+    count = n;
+    selection();
+  };
+  $('counts').append(b);
+}
+function selection() {
+  $('custom-options').hidden = !custom;
+  for (const [id, on] of [
+    ['mode-quick', !custom],
+    ['mode-custom', custom],
+  ] as const) {
+    $(id).classList.toggle('selected', on);
+    $(id).setAttribute('aria-pressed', String(on));
+  }
+  $('chosen-difficulty').textContent = title(custom ? difficulty : 'normal');
+  $('chosen-count').textContent = String(custom ? count : 20);
+  $('difficulty-note').textContent = descriptions[difficulty];
+  document.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((b) => {
+    const on = b.dataset.difficulty === difficulty;
+    b.classList.toggle('selected', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-count]').forEach((b) => {
+    const on = b.dataset.count === String(count);
+    b.classList.toggle('selected', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+$('mode-quick').onclick = () => {
+  custom = false;
+  selection();
+};
+$('mode-custom').onclick = () => {
+  custom = true;
+  selection();
+};
+selection();
+let worker: Worker | undefined,
+  playing = false,
   dead = false,
-  pending = false,
-  roomCode = '',
-  lastRequest: JoinRequest | undefined,
+  paused = false,
   angle = 0,
   boost = false,
   previousScore = BASE_MASS,
-  recovering = false,
-  lastSnapshot = 0;
+  config: GameConfig,
+  latest: Snapshot | undefined;
 const modal = $<HTMLDialogElement>('modal'),
-  death = $<HTMLDialogElement>('death');
-function toast(message: string) {
-  $('toast').textContent = message;
-  $('toast').hidden = false;
-  setTimeout(() => ($('toast').hidden = true), 3200);
+  death = $<HTMLDialogElement>('death'),
+  pauseDialog = $<HTMLDialogElement>('pause-dialog');
+const send = (command: Command) => worker?.postMessage(command);
+function updateStats(score: number, rank: number, seconds: number) {
+  stats.score = Math.max(stats.score, score);
+  if (rank > 0) stats.rank = stats.rank ? Math.min(stats.rank, rank) : rank;
+  stats.seconds = Math.max(stats.seconds, seconds);
 }
-function openModal(html: string) {
-  $('modal-content').innerHTML = html;
-  modal.showModal();
-  audio.unlock();
-  audio.play('click');
-}
-$('modal-close').onclick = () => modal.close();
-modal.addEventListener('click', (e) => {
-  if (e.target === modal) modal.close();
-});
-death.addEventListener('cancel', (e) => e.preventDefault());
-function status(online: boolean) {
-  $('status').textContent = online ? 'SERVER ONLINE' : 'SERVER OFFLINE';
-  $('status-dot').classList.toggle('online', online);
-}
-function setBusy(value: boolean) {
-  pending = value;
-  for (const id of ['quick', 'create', 'join']) $<HTMLButtonElement>(id).disabled = value;
-}
-function showMenuError(message: string) {
-  $('menu-error').hidden = false;
-  $('menu-error').textContent = message;
-}
-function joined(reply: JoinReply, request: JoinRequest) {
-  setBusy(false);
-  if (!reply.ok) {
-    if (recovering) {
-      recovering = false;
-      $('reconnect').hidden = true;
-      backToMenu();
-    }
-    showMenuError(reply.error);
-    return;
-  }
-  modal.close();
-  death.close();
-  $('menu-error').hidden = true;
-  roomCode = reply.code;
-  lastRequest = { ...request, mode: reply.private ? 'join' : 'public', code: reply.code };
-  renderer.reset(reply.id);
-  playing = true;
+function newLife() {
   dead = false;
+  boost = false;
   previousScore = BASE_MASS;
-  $('menu').hidden = true;
-  $('hud').hidden = false;
-  $('reconnect').hidden = true;
-  $('room-label').textContent = reply.private ? `PRIVATE · ${reply.code}` : 'PUBLIC ARENA';
-  $('invite').hidden = !reply.private;
-  if (recovering) {
-    toast('Signal restored. A fresh coil is ready.');
-    recovering = false;
-  } else if (reply.private) toast(`Room ${reply.code} · Invite a friend with the copy button.`);
+  renderer.reset('you');
+  death.close();
+  stats.games++;
+  sessionStats();
   audio.play('join');
 }
-function join(mode: JoinRequest['mode'], code?: string) {
-  if (pending) return;
+function start() {
+  worker?.terminate();
   audio.unlock();
-  audio.play('click');
-  if (!socket.connected) {
-    showMenuError('The server is offline. We’re reconnecting — please try again shortly.');
-    return;
-  }
-  const name = $<HTMLInputElement>('name').value.trim() || 'Wanderer';
-  sessionStorage.setItem('luma-name', name);
-  const request = { mode, name, skin, code };
-  setBusy(true);
-  socket.timeout(7000).emit('join', request, (err: Error | null, reply: JoinReply) => {
-    if (err) {
-      setBusy(false);
-      showMenuError('The arena took too long to respond. Please try again.');
-      return;
-    }
-    joined(reply, request);
-  });
-}
-$('quick').onclick = () => join('public');
-$('create').onclick = () => join('create');
-function joinDialog(code = '') {
-  openModal(
-    `<span class="eyebrow">BETTER TOGETHER</span><h2>Your people. Your arena.</h2><p>Enter your friend’s six-digit room code to join their corner of the cosmos.</p><form id="join-form"><label class="field-label" for="code">ROOM CODE</label><input id="code" class="code-input" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required/><button class="primary" type="submit">Join the room <b>↗</b></button><p id="join-error" class="error" role="alert"></p></form>`,
-  );
-  $<HTMLInputElement>('code').value = code;
-  $('join-form').onsubmit = (e) => {
-    e.preventDefault();
-    const value = $<HTMLInputElement>('code').value;
-    modal.close();
-    join('join', value);
+  config = {
+    name: $<HTMLInputElement>('name').value.trim() || 'Wanderer',
+    skin,
+    difficulty: custom ? difficulty : 'normal',
+    count: custom ? count : 20,
   };
-  setTimeout(() => $('code').focus(), 50);
-}
-$('join').onclick = () => joinDialog();
-$('how').onclick = () =>
-  openModal(
-    `<span class="eyebrow">FIND YOUR FLOW</span><h2>Small coil. Big dreams.</h2><div class="instructions"><div><b>01</b><p><strong>Follow your curiosity.</strong>Point your mouse to steer. On a phone, drag anywhere in the arena.</p></div><div><b>02</b><p><strong>Chase the glow.</strong>Gather sparks to grow. Brighter pellets are worth more mass.</p></div><div><b>03</b><p><strong>Make your move.</strong>Hold Space or the mouse button to boost. Speed costs mass, so grow a little first.</p></div><div><b>04</b><p><strong>Mind the other coils.</strong>Touch another player’s body or the arena edge and your run ends. Your own tail is safe. A dotted halo protects newly spawned coils for 2.5 seconds.</p></div></div><p class="dialog-note">Quick Play mixes real people with server-controlled AI coils. Private rooms are just for you and your friends.</p>`,
-  );
-$('settings').onclick = () => {
-  openModal(
-    `<span class="eyebrow">SET THE MOOD</span><h2>Your kind of atmosphere.</h2><label class="slider-label" for="sound">Sound effects <output id="sound-value">${Math.round(audio.volume * 100)}%</output></label><input id="sound" type="range" min="0" max="1" step=".01" value="${audio.volume}"/><label class="slider-label" for="music">Ambient music <output id="music-value">${Math.round(audio.music * 100)}%</output></label><input id="music" type="range" min="0" max="1" step=".01" value="${audio.music}"/><label class="mute-label"><input type="checkbox" id="mute" ${audio.muted ? 'checked' : ''}/> Mute all audio</label><p class="dialog-note">A quiet, original synthesized soundtrack. Nothing to download.</p>`,
-  );
-  for (const key of ['sound', 'music'] as const)
-    $<HTMLInputElement>(key).oninput = (e) => {
-      const v = Number((e.target as HTMLInputElement).value);
-      if (key === 'sound') audio.volume = v;
-      else audio.music = v;
-      $(key + '-value').textContent = `${Math.round(v * 100)}%`;
-      audio.save();
-    };
-  $<HTMLInputElement>('mute').onchange = (e) => {
-    audio.muted = (e.target as HTMLInputElement).checked;
-    audio.save();
+  save('luma-name', config.name);
+  $('menu-error').hidden = true;
+  $<HTMLButtonElement>('quick').disabled = true;
+  worker = new Worker(new URL('./game-worker.ts', import.meta.url), { type: 'module' });
+  worker.onerror = () => {
+    backToMenu();
+    $('menu-error').textContent = 'The arena couldn’t start. Please try again.';
+    $('menu-error').hidden = false;
   };
-};
-function backToMenu() {
-  socket.emit('leave');
-  playing = false;
-  dead = false;
-  boost = false;
-  recovering = false;
-  lastRequest = undefined;
-  setBusy(false);
-  renderer.reset();
-  death.close();
-  $('menu').hidden = false;
-  $('hud').hidden = true;
-  $('reconnect').hidden = true;
-}
-$('leave').onclick = backToMenu;
-$('back-menu').onclick = backToMenu;
-$('cancel-reconnect').onclick = backToMenu;
-$('respawn').onclick = () => {
-  audio.unlock();
-  boost = false;
-  socket.timeout(5000).emit('respawn', (err: Error | null, ok: boolean) => {
-    if (err || !ok) {
-      toast('Couldn’t respawn yet. Try again in a moment.');
-      return;
+  worker.onmessage = (e: MessageEvent<GameEvent>) => {
+    const event = e.data;
+    if (event.type === 'ready') {
+      playing = true;
+      paused = false;
+      latest = undefined;
+      newLife();
+      $('menu').hidden = true;
+      $('hud').hidden = false;
+      $('room-label').textContent =
+        `${title(config.difficulty).toUpperCase()} · ${config.count} AI`;
+      $<HTMLButtonElement>('quick').disabled = false;
     }
-    renderer.reset(socket.id!);
-    dead = false;
-    previousScore = BASE_MASS;
-    death.close();
-    audio.play('join');
-  });
-};
-$('sound-toggle').onclick = () => {
-  audio.muted = !audio.muted;
-  audio.save();
-  $('sound-toggle').textContent = audio.muted ? '∅' : '♪';
-  toast(audio.muted ? 'Sound muted' : 'Sound on');
-};
-$('invite').onclick = async () => {
-  const url = new URL(location.href);
-  url.searchParams.set('room', roomCode);
-  try {
-    await navigator.clipboard.writeText(url.toString());
-    toast(`Invite copied · Room ${roomCode}`);
-  } catch {
-    openModal(
-      '<span class="eyebrow">INVITE A FRIEND</span><h2>Good company, great coils.</h2><p id="copy-code"></p><input id="copy-link" class="code-input" readonly/><p>Select and copy the invite link above.</p>',
-    );
-    $('copy-code').textContent = `Room code: ${roomCode}`;
-    $<HTMLInputElement>('copy-link').value = url.toString();
-    $<HTMLInputElement>('copy-link').select();
-  }
-};
-socket.on('connect', () => {
-  status(true);
-  if (playing && lastRequest) {
-    recovering = true;
-    renderer.reset();
-    const request = lastRequest;
-    socket.timeout(7000).emit('join', request, (err: Error | null, reply: JoinReply) => {
-      if (err) {
-        backToMenu();
-        showMenuError('The server restarted. Please join a new arena.');
-      } else joined(reply, request);
-    });
-  }
-});
-socket.on('connect_error', () => {
-  status(false);
-  if (!playing) $('status').textContent = 'SERVER UNAVAILABLE';
-});
-socket.on('disconnect', () => {
-  status(false);
-  setBusy(false);
-  boost = false;
-  if (playing) {
-    $('reconnect').hidden = false;
-    death.close();
-  }
-});
-socket.on('snapshot', (state) => {
-  if (!playing) return;
-  lastSnapshot = performance.now();
+    if (event.type === 'respawned') newLife();
+    if (event.type === 'snapshot') {
+      latest = event.state;
+      renderState(event.state, event.seconds);
+    }
+    if (event.type === 'death') {
+      dead = true;
+      boost = false;
+      document.body.classList.remove('boosting');
+      const d = event.data;
+      $('death-score').textContent = String(d.score);
+      $('death-rank').textContent = '#' + d.rank;
+      $('death-time').textContent = time(d.seconds);
+      $('death-food').textContent = String(d.foodEaten);
+      $('death-peak').textContent = String(d.peakMass);
+      $('death-difficulty').textContent = title(config.difficulty);
+      $('death-reason').textContent = d.reason;
+      updateStats(d.peakMass ?? d.score, d.rank ?? 0, d.seconds);
+      sessionStats();
+      death.showModal();
+      audio.play('death');
+    }
+  };
+  send({ type: 'start', config });
+}
+$('quick').onclick = start;
+function renderState(state: Snapshot, seconds: number) {
   renderer.push(state);
   $('score').textContent = state.score.toLocaleString();
   $('rank').textContent = state.rank ? String(state.rank) : '—';
   $('players').textContent = String(state.count);
-  $('population').textContent =
-    `${state.humanCount} HUMAN${state.humanCount === 1 ? '' : 'S'} · ${state.botCount} AI`;
-  $('population').hidden = state.botCount === 0;
-  const me = state.snakes.find((p) => p.id === renderer.id);
+  $('population').textContent = `YOU + ${state.botCount} AI`;
+  $('time').textContent = time(seconds);
+  updateStats(state.score, state.rank, seconds);
+  const me = state.snakes.find((p) => p.id === 'you');
   if (me) {
     if (me.mass > previousScore) audio.play('eat');
     if (me.boost && !document.body.classList.contains('boosting')) audio.play('boost');
@@ -297,30 +244,98 @@ socket.on('snapshot', (state) => {
   list.replaceChildren();
   state.leaders.forEach((p, i) => {
     const li = document.createElement('li');
-    if (p.id === renderer.id) li.className = 'is-you';
-    const rank = document.createElement('span');
+    if (p.id === 'you') li.className = 'is-you';
+    const rank = document.createElement('span'),
+      name = document.createElement('span'),
+      score = document.createElement('b');
     rank.textContent = String(i + 1).padStart(2, '0');
-    const name = document.createElement('span');
-    name.textContent = p.name + (p.id === renderer.id ? ' · you' : p.bot ? ' · AI' : '');
-    const score = document.createElement('b');
+    name.textContent = p.name + (p.id === 'you' ? ' · you' : '');
     score.textContent = p.score.toLocaleString();
     li.append(rank, name, score);
     list.append(li);
   });
-});
-socket.on('death', (data) => {
-  dead = true;
+}
+function backToMenu() {
+  worker?.terminate();
+  worker = undefined;
+  playing = false;
+  dead = false;
+  paused = false;
   boost = false;
+  latest = undefined;
+  renderer.reset();
+  death.close();
+  pauseDialog.close();
+  $('menu').hidden = false;
+  $('hud').hidden = true;
   document.body.classList.remove('boosting');
-  $('death-score').textContent = data.score.toLocaleString();
-  $('death-time').textContent =
-    `${Math.floor(data.seconds / 60)}:${String(data.seconds % 60).padStart(2, '0')}`;
-  $('death-reason').textContent = data.reason;
-  death.showModal();
-  audio.play('death');
+  $<HTMLButtonElement>('quick').disabled = false;
+  sessionStats();
+}
+for (const id of ['leave', 'back-menu', 'pause-menu']) $(id).onclick = backToMenu;
+$('respawn').onclick = () => {
+  audio.unlock();
+  send({ type: 'respawn' });
+};
+function pause(value: boolean) {
+  if (!playing || dead) return;
+  paused = value;
+  boost = false;
+  send({ type: 'pause', paused });
+  if (value) pauseDialog.showModal();
+  else pauseDialog.close();
+}
+$('pause').onclick = () => pause(true);
+$('resume').onclick = () => pause(false);
+pauseDialog.addEventListener('cancel', (e) => {
+  e.preventDefault();
+  pause(false);
 });
+death.addEventListener('cancel', (e) => e.preventDefault());
+function openModal(html: string) {
+  $('modal-content').innerHTML = html;
+  modal.showModal();
+  audio.unlock();
+  audio.play('click');
+}
+$('modal-close').onclick = () => modal.close();
+modal.addEventListener('click', (e) => {
+  if (e.target === modal) modal.close();
+});
+$('how').onclick = () =>
+  openModal(
+    `<span class="eyebrow">FIND YOUR FLOW</span><h2>Small coil. Big dreams.</h2><div class="instructions"><div><b>01</b><p><strong>Follow your curiosity.</strong>Point your mouse to steer. On a phone, drag anywhere in the arena.</p></div><div><b>02</b><p><strong>Chase the glow.</strong>Gather sparks to grow. Brighter pellets are worth more mass.</p></div><div><b>03</b><p><strong>Make your move.</strong>Hold Space, the mouse button, or the touch Boost button. Boost spends mass. Gather a few sparks first.</p></div><div><b>04</b><p><strong>Mind the other coils.</strong>Touch another coil’s body or the arena edge and your run ends. Your own tail is safe. A dotted halo protects new coils for 2.5 seconds.</p></div></div><p class="dialog-note">Every opponent is AI. Quick Play uses Normal difficulty and 20 AI; Custom Game lets you set the challenge. Press Esc to pause. Changing tabs pauses your arena.</p>`,
+  );
+$('settings').onclick = () => {
+  openModal(
+    `<span class="eyebrow">SET THE MOOD</span><h2>Your kind of atmosphere.</h2><label class="slider-label" for="sound">Sound effects <output id="sound-value">${Math.round(audio.volume * 100)}%</output></label><input id="sound" type="range" min="0" max="1" step=".01" value="${audio.volume}"/><label class="slider-label" for="music">Ambient music <output id="music-value">${Math.round(audio.music * 100)}%</output></label><input id="music" type="range" min="0" max="1" step=".01" value="${audio.music}"/><label class="mute-label"><input type="checkbox" id="mute" ${audio.muted ? 'checked' : ''}/> Mute all audio</label><p class="dialog-note">Original synthesized sounds. Your preferences stay on this device.</p>`,
+  );
+  for (const key of ['sound', 'music'])
+    $<HTMLInputElement>(key).oninput = (e) => {
+      const v = Number((e.target as HTMLInputElement).value);
+      if (key === 'sound') audio.volume = v;
+      else audio.music = v;
+      $(key + '-value').textContent = `${Math.round(v * 100)}%`;
+      audio.save();
+    };
+  $<HTMLInputElement>('mute').onchange = (e) => {
+    audio.muted = (e.target as HTMLInputElement).checked;
+    audio.save();
+  };
+};
+$('sound-toggle').onclick = () => {
+  audio.muted = !audio.muted;
+  audio.save();
+  $('sound-toggle').textContent = audio.muted ? '∅' : '♪';
+};
 window.addEventListener('pointermove', (e) => {
-  if (playing && !dead && e.target !== $('touch-boost') && (e.pointerType !== 'touch' || e.buttons))
+  if (
+    playing &&
+    !dead &&
+    !paused &&
+    e.target !== $('touch-boost') &&
+    (e.pointerType !== 'touch' || e.buttons)
+  )
     angle = Math.atan2(e.clientY - innerHeight / 2, e.clientX - innerWidth / 2);
 });
 $('arena').addEventListener('pointerdown', (e) => {
@@ -331,51 +346,70 @@ $('arena').addEventListener('pointerdown', (e) => {
 window.addEventListener('pointerup', () => (boost = false));
 window.addEventListener('pointercancel', () => (boost = false));
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && playing && !dead) {
+  if (e.code === 'Space' && playing && !dead && !paused) {
     e.preventDefault();
     boost = true;
+  }
+  if (e.code === 'Escape' && playing && !dead) {
+    e.preventDefault();
+    if (!e.repeat) pause(!paused);
   }
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'Space') boost = false;
 });
-window.addEventListener('blur', () => {
-  boost = false;
-});
+window.addEventListener('blur', () => (boost = false));
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    boost = false;
-    socket.emit('input', { angle, boost: false });
-  }
+  if (document.hidden && playing && !dead && !paused) pause(true);
 });
 $('touch-boost').onpointerdown = (e) => {
   e.preventDefault();
   boost = true;
 };
 setInterval(() => {
-  if (playing && !dead && socket.connected) socket.emit('input', { angle, boost });
+  if (playing && !dead && !paused) send({ type: 'input', angle, boost });
 }, 1000 / 30);
-setInterval(() => {
-  if (socket.connected) {
-    const start = performance.now();
-    socket.timeout(3000).emit('latency', (err: Error | null) => {
-      if (!err) $('ping').textContent = `${Math.round(performance.now() - start)} ms`;
-    });
-  }
-  if (
-    playing &&
-    !dead &&
-    lastSnapshot &&
-    performance.now() - lastSnapshot > 4000 &&
-    socket.connected
-  ) {
-    socket.disconnect();
-    socket.connect();
-  }
-}, 2500);
-const inviteCode = new URLSearchParams(location.search).get('room');
-if (inviteCode && /^\d{6}$/.test(inviteCode)) joinDialog(inviteCode);
 window.addEventListener('beforeunload', () => {
+  sessionStats();
   renderer.destroy();
-  socket.disconnect();
+  worker?.terminate();
 });
+// Optional ChatGPT agent read-back shares the exact state displayed in the HUD.
+const context = (
+  document as Document & {
+    modelContext?: { registerTool: (tool: unknown, options: unknown) => unknown };
+  }
+).modelContext;
+const lifecycle = new AbortController();
+if (context?.registerTool) {
+  try {
+    Promise.resolve(
+      context.registerTool(
+        {
+          name: 'read_arena_status',
+          description: 'Read the current Luma Coil menu or live arena status and session records.',
+          inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+          annotations: { readOnlyHint: true, untrustedContentHint: true },
+          execute(input: unknown) {
+            if (!input || typeof input !== 'object' || Object.keys(input).length)
+              throw new Error('Expected an empty object');
+            return {
+              playing,
+              paused,
+              dead,
+              difficulty: playing ? config.difficulty : custom ? difficulty : 'normal',
+              aiCount: playing ? config.count : custom ? count : 20,
+              score: latest?.score ?? 0,
+              rank: latest?.rank ?? 0,
+              stats: { ...stats },
+            };
+          },
+        },
+        { signal: lifecycle.signal },
+      ),
+    ).catch(() => {});
+  } catch {
+    /* Optional browser API. */
+  }
+}
+window.addEventListener('pagehide', () => lifecycle.abort());

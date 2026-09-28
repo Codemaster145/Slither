@@ -1,159 +1,95 @@
 # Luma Coil
 
-An original, guest-only multiplayer snake arena. A TypeScript/Canvas frontend connects to one authoritative Node.js/Socket.IO server. Humans on separate computers share positions, pellets, collisions, deaths, scores, and rooms through actual persistent network connections. **Public Quick Play arenas also include server-controlled AI snakes; private rooms remain human-only.** The decorative coil on the menu is an illustration.
+An original glowing snake arena, now a **self-contained browser game for ChatGPT Sites**. The default experience is single-player versus AI. Visitors need no game account; their name is optional. The Site makes no Socket.IO, Render, or external game-server requests. Fonts, graphics, sounds, physics, AI and rendering run locally in the browser.
 
-Features include public arenas with capacity for 32 humans with automatic overflow, six-digit private rooms and invite links, six original skins, continuous movement, mass-consuming boost, body collisions, death food, instant respawn, a live leaderboard, minimap, mobile steering/boost, and original synthesized sound/music with volume and mute controls. Fonts ship locally with the app.
+The original online multiplayer implementation is preserved separately. See [multiplayer documentation](docs/multiplayer.md).
 
-## Run locally
+## Play locally
 
-Requires Node.js 22.12+ and npm. From this repository:
+Node.js 22.12+ and npm are needed to develop/build, not to play the published static Site.
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
-Open **http://localhost:5173**. Vite proxies `/socket.io` to the server on port 3001. Both listen on `0.0.0.0`, so a second device on your network can open `http://YOUR_COMPUTER_LAN_IP:5173`. Permit these ports through your local firewall when necessary. Do not use `localhost` on the second device: that addresses the second device itself.
-
-Production build, served by one process:
+Open the local URL printed by Vite (normally http://localhost:5173).
 
 ```sh
 npm run build
 npm start
 ```
 
-Open **http://localhost:3001**. The Node process serves both `dist/client` and Socket.IO; no Vite server is needed. `/health` returns service health and current room/player counts.
+This builds static files into `dist/client` and previews them at the URL Vite prints (normally http://localhost:4173). `.openai/hosting.json` declares that static directory for ChatGPT Sites. No server environment variables are needed. The Site starts at its main menu, with no in-game sign-in. Public deployment is intentionally pending the user's preview review; registration alone does not make a live Site.
 
-## Play
+## Controls and modes
 
-Point your mouse to steer; you always move forward. Collect food to increase mass and length. Bright large pellets are worth four mass; ordinary pellets are worth one; remains carry varying mass. Hold Space or the left mouse button to boost after growing beyond 36 mass. Boost costs seven mass per second and leaves edible sparks.
+- Mouse: point to steer, hold Space or left click to boost. Touch: drag to steer and hold the dedicated Boost button.
+- Collect glowing pellets to grow; boost spends mass. Your own tail is safe. Another coil's body or the circular boundary ends your run. New coils have a 2.5-second body shield; the boundary is always lethal.
+- Esc or the pause button pauses the entire arena. Switching tabs also pauses it; resume explicitly when returning.
+- **Quick Play:** Normal difficulty, 20 AI.
+- **Custom Game:** Easy, Normal, Hard, Expert or Mixed; choose 10, 20 or 30 AI. Choose any of six original skins.
+- Death reports score, rank, survival time, pellets eaten, peak mass and difficulty. Respawn preserves the arena and AI population without reloading. Returning to the menu terminates its worker.
+- Best score, best rank, longest survival and runs played are stored per browser tab/session. Every new life counts as a run. No cloud account or persistence is required.
 
-Touch another coil's body, including its head, and you die. Head-on collisions kill both players. Your own body is safe. The visible circular arena boundary is lethal, with a warning near the edge. New coils have 2.5 seconds of mutual body-collision protection, shown by a dotted halo. The boundary remains lethal during protection. Press “One more round” to respawn without leaving the room.
+## Difficulty and fairness
 
-On a touch screen, drag relative to the screen center to steer, and hold the dedicated BOOST button. Desktop is the primary input method.
+| Tier   | Reaction interval (with jitter) | Local vision | Decisions                                                                                |
+| ------ | ------------------------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| Easy   | ~480 ms                         | 280 units    | Short planning, inaccurate turns, frequent mistakes, rare boosts                         |
+| Normal | ~260 ms                         | 410 units    | Food value/distance targeting, nearby avoidance, occasional boosts                       |
+| Hard   | ~170 ms                         | 550 units    | Predicted nearby head movement, safe cutoff attempts, strategic boosts                   |
+| Expert | ~115 ms                         | 690 units    | Longer size-aware planning, predicted threats, escape-exit checks, offense/escape boosts |
 
-## Private rooms and two-computer test
+All tiers use the same speed, turn rate, boost cost, food pickup, growth, shielding and collision implementation as the player. AI produces ordinary steering/boost inputs. It does not modify position or mass directly. Body and food searches are spatially bounded; head prediction excludes heads outside vision. All tiers have aiming noise and imperfect reactions.
 
-1. On computer A, open the app, enter `PlayerOne`, and choose **Create Private Room**.
-2. Read the six-digit code in the upper-left HUD. The copy icon copies an invite URL containing `?room=123456`. If clipboard access is unavailable, a selectable link is displayed.
-3. On computer B, open the **same server's URL**, enter `PlayerTwo`, choose **Join Private Room**, and enter A's code. Or open A's invite link.
-4. Both players spawn in the same region. Steer and verify each sees the other move. Collect a pellet, check both leaderboards, and test collision/respawn.
-5. Close B's tab; A's player count drops. Reopen and rejoin with the same code.
+Aggressive, cautious, food-hunter and balanced personalities vary food interest, spacing, aggression and boost probability. Mixed repeats a ten-coil distribution: two Easy, five Normal, two Hard and one Expert. Names come from the original 60-name pool, shuffled without replacement. Dead AI drops food and respawns after 2–3.8 seconds; the living count may temporarily be below the selected population.
 
-For two different internet connections, use the public HTTPS URL deployed below. A LAN IP or `localhost` is not publicly reachable. No account is required to play. Duplicate names receive a numeric suffix. Private rooms are isolated arenas; possession of the code grants entry (they are not authenticated or encrypted separately from HTTPS).
+## Architecture
 
-Empty rooms expire after 60 seconds. State lives in memory. Server restarts/deployments clear rooms and runs. A temporary transport interruption reconnects the guest to the previous room with a **new coil and reset mass**. An expired room returns a clear error so the player can create another. Disconnects remove the old coil immediately after transport loss is detected (heartbeat detection can take up to 15 seconds).
+| Files                                                    | Responsibility                                                                   |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `shared/arena.ts`, `shared/spatial.ts`                   | Platform-neutral authoritative rules and spatial hashes, shared with multiplayer |
+| `shared/local-game.ts`, `shared/names.ts`                | Local AI decisions, personalities, population and respawn lifecycle              |
+| `shared/worker-protocol.ts`, `client/src/game-worker.ts` | Typed messages, fixed 30 Hz physics, 15 Hz snapshots, staggered AI thinking      |
+| `client/src/main.ts`, `markup.ts`, `site.css`            | Default Site menu, input, difficulty controls, HUD, pause/death/session flows    |
+| `client/src/renderer.ts`, `audio.ts`, `style.css`        | Original smooth Canvas renderer, effects, minimap, sound and visual identity     |
+| `client/src/multiplayer.ts`, `multiplayer-markup.ts`     | Preserved network client, isolated from the Site import graph                    |
+| `server/`                                                | Preserved authoritative Socket.IO server, private rooms and public bots          |
+| `vite.config.ts`, `vite.multiplayer.config.ts`           | Separate static Site and multiplayer builds                                      |
 
-## Quick Play AI
+Physics and AI run in a dedicated Web Worker; the main thread renders via requestAnimationFrame, normally at the display refresh rate. Nearby spatial queries avoid full-map food/body scans. A read-only `read_arena_status` WebMCP tool is feature-detected for supporting browsers and uses the same state as the HUD.
 
-Public rooms target **18 total snakes**: one human gets 17 bots, five humans get 13 bots, and at **15 or more humans the target is zero bots**. Population is checked every half-second. Deaths create a short dip in living population while bots wait 2–4 seconds to respawn. All clients receive the same authoritative AI state, food and leaderboard; bot entries have an `AI` marker and the current human remains highlighted.
-
-Bots never block a human joining a room. Excess bots retire after normal deaths or when their entire trail is outside every human's relevance radius. Visible retirees steer toward the edge using ordinary movement and collision rules. This avoids abrupt disappearances and can temporarily put the total above 18 (or above 32 during a large influx); the room limit is **32 human connections**, with at most 17 existing bots finishing their exits. When the last human leaves, bots are removed and the ordinary 60-second room cleanup applies. Private rooms contain no automatic AI.
-
-`server/bots.ts` provides inputs to the existing simulation rather than moving entities itself. Food sensing uses the food spatial hash within a 260/380/520-unit radius depending on skill. Body avoidance queries the body hash within at most 300 units. Bots weigh nearby food by value, distance and turning cost, evaluate short local paths, avoid the edge, wander when food is out of sight, and occasionally boost when mass and clearance permit. All turn limits, speed, boost costs, pickups, growth, collision deaths and food drops are the same as for humans.
-
-A shuffled seven-bot skill bag contains five Normal, one Easy and one Good AI. Reaction times range from about 160–380 ms plus jitter; aim noise and incomplete local information create mistakes. Bots draw unique names from a 60-name pool and choose existing skins. A respawn retains identity, name and skin but resets mass and grants the standard spawn shield. Inputs are evaluated about 2.5–6 times a second, staggered across bots. Clients cannot spawn or control AI through the network protocol.
-
-## Architecture and important files
-
-| File                        | Responsibility                                                                                                    |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `server/index.ts`           | HTTP server, validated Socket.IO events, rooms, rate budgets, fixed simulation loop and snapshots                 |
-| `server/bots.ts`            | Public population management, local sensing, skill profiles, steering and respawn scheduling                      |
-| `server/arena.ts`           | Authoritative movement, history trails, mass, food, collisions, deaths, spawn protection and visible-state deltas |
-| `server/spatial.ts`         | Spatial hash for food and nearby body collision queries                                                           |
-| `shared/protocol.ts`        | Typed messages, tuning constants, skin palette and world dimensions                                               |
-| `client/src/main.ts`        | Connection lifecycle, menu/HUD actions, input and audio integration                                               |
-| `client/src/renderer.ts`    | Canvas rendering, interpolation, camera, minimap, particles and menu artwork                                      |
-| `client/src/markup.ts`      | Main menu, dialogs and HUD structure                                                                              |
-| `client/src/audio.ts`       | Original oscillator-based sound effects and ambient music                                                         |
-| `client/src/style.css`      | Responsive visual design                                                                                          |
-| `tests/`                    | Simulation, real socket integration, 32-client load and two-browser acceptance tests                              |
-| `render.yaml`, `Dockerfile` | Public deployment configurations                                                                                  |
-
-### Networking and performance
-
-The server simulates at **30 Hz** and publishes snapshots at **15 Hz**. Clients send only desired angle and boolean boost at 30 Hz. Server-side turn limits, fixed speeds and mass budgets determine the result. Inputs over 45/second are ignored; room actions are limited to five/second per socket. Names are normalized, stripped of markup/control characters, capped to 20 characters, and rendered with `textContent`. Invalid packet shapes, non-finite angles, invalid skins and unknown rooms are rejected. Transport messages are capped at 2 KiB.
-
-Each arena has a 2,600-unit radius, 2,400 ambient food particles, a 32-human capacity, capped growth, and a cap on extra dropped food. Food and body checks use spatial hashes instead of every player checking every food or every other body. Bodies are compact movement trails, not physics objects. Food has stable per-room IDs; humans use their connection IDs and bots have server-generated UUIDs.
-
-Only entities within a 1,650-unit relevance radius are transmitted. Food is sent on entering that radius, then as additions/removals; it is not retransmitted every tick. Nearby snake trails are quantized, sampled about every 15 units, and published with their head state. Leaderboards contain ten entries. Snapshots use reliable delivery because food deltas cannot be dropped; congested transports are skipped before changing their known-food set. Client rendering additionally culls offscreen food and constrains the camera so the viewport fits the relevance radius.
-
-The renderer buffers 100 ms for interpolated motion, including bodies, and extrapolates for at most 50 ms when a snapshot is late. Camera motion and zoom ease smoothly. Swept server head checks prevent tunneling; a slightly forgiving body collision radius and spawn shield reduce unfair-looking impacts. **There is no historical server rewind or full client movement prediction**: high latency will still delay steering, and this needs further tuning under real WAN conditions.
-
-Use **one server process/instance**. Raising the room player limit is a tuning change, but multi-instance scaling requires an explicit room-owner/routing design. Merely enabling a Socket.IO Redis adapter does not distribute the in-memory simulation. There is no persistent account database.
-
-## Tests
+## Verification
 
 ```sh
 npm test
-npx playwright install chromium
-npm run test:browser
-npm run typecheck
+npm run build
+npm run build:multiplayer
+npx playwright test
 npm run format:check
 ```
 
-`npm test` exercises motion/boost authority, shared food deltas, body/head/boundary deaths, respawn, name handling, room isolation/capacity, malformed inputs, real WebSocket disconnect cleanup, and 32 simultaneous real socket clients. AI tests cover population retirement, private-room exclusion, local steering/avoidance, legal boosting, shared collisions in both directions, death food, delayed respawn and a seeded one-minute gameplay simulation. The load test prints observed snapshot frequency and traffic on the machine running it; it is not an internet throughput guarantee.
+The suite covers shared movement/collision rules, all 15 difficulty/count combinations, bounded AI perception, equal human/AI speeds and costs, food/growth, death drops, respawning, three-minute 30-AI simulations, real multiplayer clients, offline browser play, pause, settings, session stats, restarts, touch UI and browser frame timing.
 
-`npm run test:browser` builds production assets, starts an isolated real server and opens two independent Chromium browser contexts. It verifies both players' received movement snapshots, shared food removal, scores/leaderboards, boost, body collision/death, respawn, transport reconnection, disconnect cleanup, invite links, invalid rooms, skins, settings and a mobile-width layout. A second two-browser Quick Play test compares bot positions and leaderboard entries from the exact same server timestamp, verifies AI food growth and human/AI collision, bot respawn, and adds 13 real socket clients to verify retirement at 15 humans. Test fixtures can position entities directly in the in-process test server to make collisions reproducible; **no test-control endpoints or client score/position controls exist in production**. Screenshots are written to `test-results/`.
+On this development Mac, a seeded three-minute simulation with 30 AI recorded 228 Easy deaths, 169 Normal deaths, 9 Hard deaths and 6 Expert deaths. This is a regression scenario, not a universal difficulty ranking. Expert physics/AI plus snapshot work measured about 2.5 ms at p95 in the isolated run. Chrome's 30-Expert rendering sample measured a ~16.7 ms median frame (about 60 FPS); hardware, browsers and very long sessions can differ. Mobile was exercised using touch emulation, not physical devices.
 
-These tests were executed locally. An actual cross-internet test must be performed after deployment with two independent devices/connections; local browser contexts do not establish that a hosting account, DNS, firewall and TLS configuration work.
+Playwright automatically uses installed Chrome on this Mac; other systems use its bundled Chromium (`npx playwright install chromium`). The test environment occasionally jumps its monotonic clock while suspended; `npx playwright test --timeout=0` avoids false overall timeout failures during such sessions. Assertions remain independently bounded except the actual boundary-death wait.
 
-## Environment
-
-| Variable          | Where          | Default / purpose                                                                                     |
-| ----------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
-| `PORT`            | Server runtime | `3001`; most hosts inject this automatically                                                          |
-| `ALLOWED_ORIGINS` | Server runtime | Unset permits the request's same origin; set comma-separated exact frontend origins for split hosting |
-| `VITE_SERVER_URL` | Frontend build | Unset connects to the page origin; set to the public HTTPS backend origin only for split hosting      |
-| `NODE_ENV`        | Server runtime | Set `production` on your host                                                                         |
-
-`.env.example` documents these values. The backend reads actual process environment variables; it does not automatically load `.env`. Set them in your host dashboard or shell, or use Node's `--env-file` option for the built server. Vite reads frontend `.env` files from `client/`, or exported environment variables at build time. For example:
+## Preserved multiplayer
 
 ```sh
-VITE_SERVER_URL=https://your-backend.example npm run build
-ALLOWED_ORIGINS=https://your-frontend.example npm start
+npm run dev:multiplayer
+# Open http://localhost:5173/multiplayer.html
+npm run build:multiplayer
+npm run start:multiplayer
+# Production multiplayer: http://localhost:3001
 ```
 
-Keep `VITE_SERVER_URL` unset for the recommended single-service deployment. Do not put localhost into a production build. No secrets belong in a `VITE_` variable.
+Private rooms, shared real-player arenas and adaptive server bots are unchanged in purpose. Dockerfile/render.yaml explicitly build and run this multiplayer variant. Render is optional for that separate variant and is not used by the Site. Separate browser clients and the 32-client networking regression remain in the test suite.
 
-## Deploy publicly on Render (recommended)
+## Remaining scope
 
-Render Web Services support persistent WebSockets and serve public HTTPS traffic. See the official [Node deployment instructions](https://render.com/docs/deploy-node-express-app) and [WebSocket documentation](https://render.com/docs/websocket). This repository is prepared for deployment; it has **not been published to a hosting account**.
+No optional Survival mode was added. Desktop and touch-emulated flows are covered; testing physical phones and longer play sessions would improve tuning. Expert AI uses bounded local heuristics, not perfect global planning. Online multiplayer remains a separate server-hosted experience.
 
-1. Push this repository to a GitHub/GitLab repository you control, including `package-lock.json`.
-2. In Render, choose **New → Web Service**, then connect that repository. Use the repository root.
-3. Select the **Node** runtime. Set the build command to `npm ci --include=dev && npm run build` and the start command to `npm start`.
-4. Set `NODE_VERSION=22` and `NODE_ENV=production`. Leave `PORT` host-managed. Leave `VITE_SERVER_URL` and `ALLOWED_ORIGINS` unset for same-origin hosting.
-5. Choose an always-on instance and keep **exactly one instance**. `render.yaml` supplies a Starter single-instance configuration if you prefer Render's Blueprint import; review the hosting charge before creating it.
-6. Set the health check path to `/health`, then deploy. Wait for the health check and build to pass.
-7. Open the assigned `https://YOUR-SERVICE.onrender.com` URL. The menu must say SERVER ONLINE, and `/health` must report `ok: true`.
-8. Perform the two-computer test above using this HTTPS URL, with the second computer on a different internet connection. Verify private codes, live movement, food, collision, respawn and reconnection.
-
-Frontend and backend share this single URL and port. Socket.IO automatically uses secure WebSockets on HTTPS. No separate static site is needed. A deploy replaces the server and ends existing runs; guests reconnect, but private rooms must be recreated after a restart. Free sleeping instances can add cold-start delays, so an always-on host is preferable for a game.
-
-### Docker / another persistent host
-
-```sh
-docker build -t luma-coil .
-docker run --rm -p 3001:3001 -e PORT=3001 luma-coil
-```
-
-Deploy this container to a persistent Node/container web service with one instance, port 3001 (or injected `PORT`), and HTTPS termination. The included container runs as a non-root user. If using your own reverse proxy, preserve `Host`, set `X-Forwarded-Proto`, forward WebSocket `Upgrade`/`Connection` headers and allow long-lived connections on `/socket.io/`. Health check: `/health`.
-
-### Optional separate frontend and backend
-
-Build with `VITE_SERVER_URL=https://YOUR-BACKEND` and upload **`dist/client`** to a static host. Run the backend on a persistent WebSocket-capable host with `ALLOWED_ORIGINS=https://YOUR-FRONTEND` (exact origin, no trailing slash). Rebuild the frontend whenever its backend URL changes. Both origins need HTTPS. The backend must remain a long-running process; a static deployment alone cannot host multiplayer. Configure any custom reverse proxy to support Socket.IO polling and WebSocket upgrades.
-
-## Troubleshooting and limits
-
-- **SERVER OFFLINE:** check the server logs and `/health`. In development ensure ports 5173 and 3001 are available. On another device use the host's LAN IP or deployed URL.
-- **Works locally, fails publicly:** check the browser Network panel for `/socket.io/` and a WebSocket 101 upgrade. Check build-time `VITE_SERVER_URL`, exact allowed origins, HTTPS, proxy upgrade headers and whether the host supports persistent connections.
-- **Room not found:** confirm both clients use the same backend instance and code. Empty rooms expire after a minute, and restarts clear all rooms.
-- **Room full:** private rooms stop at 32 guests. Quick Play creates another public arena automatically.
-- **Public population:** Quick Play targets 18 entrants below 15 humans; AI count dips briefly during respawn. At 15+ humans, bots retire. The HUD separates connected humans from living AI; leaderboard entries mark AI. Private rooms never auto-populate with bots.
-- **Lag:** use a hosting region close to your players. Input prediction, adaptive jitter buffering and WAN latency tuning remain future improvements. A 32-client local test is not a large production load test.
-- **Scaling/abuse:** current packet/rate validation is basic protection. Before promoting a large public launch, add edge connection throttling, operational metrics, stress testing, and a room-routing plan. Current state is ephemeral, with at most 100 rooms per process.
-- **Music is silent:** browsers require a user gesture before audio. Start a match or open settings, then check mute and volume sliders.
-
-All game art is programmatic and original; sound is synthesized at runtime. DM Sans and Space Grotesk are bundled via Fontsource under their included open font licenses. No third-party game code or assets are used.
+Artwork and sounds are original and procedural. DM Sans and Space Grotesk are bundled through Fontsource under their included open font licenses.

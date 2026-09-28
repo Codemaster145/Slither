@@ -4,8 +4,8 @@ services:
     runtime: node
     plan: starter
     numInstances: 1
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm start
+    buildCommand: npm ci --include=dev && npm run build:multiplayer
+    startCommand: npm run start:multiplayer
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION

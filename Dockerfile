@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build && npm prune --omit=dev
+RUN npm run build:multiplayer && npm prune --omit=dev
 
 FROM node:22-alpine
 ENV NODE_ENV=production
@@ -13,4 +13,4 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 USER node
 EXPOSE 3001
-CMD ["npm", "start"]
+CMD ["npm", "run", "start:multiplayer"]

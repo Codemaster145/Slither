@@ -46,8 +46,8 @@ export function createGameServer() {
       players: [...rooms.values()].reduce((n, r) => n + r.humanCount, 0),
     }),
   );
-  app.use(express.static(resolve('dist/client')));
-  app.get('/', (_req, res) => res.sendFile(resolve('dist/client/index.html')));
+  app.use(express.static(resolve('dist/multiplayer')));
+  app.get('/', (_req, res) => res.sendFile(resolve('dist/multiplayer/multiplayer.html')));
   io.on('connection', (socket) => {
     let room: Arena | undefined;
     let inputs = 0,

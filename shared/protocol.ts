@@ -67,6 +67,9 @@ export type JoinReply =
   | { ok: true; id: string; code: string; private: boolean; name: string }
   | { ok: false; error: string };
 export interface Death {
+  rank?: number;
+  foodEaten?: number;
+  peakMass?: number;
   score: number;
   seconds: number;
   reason: string;
